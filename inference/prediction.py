@@ -28,11 +28,11 @@ def prediction(config_path, input_path, output_path):
     console.info("Prediction started ...")
 
     sampled_images_csv_filename = "sampled_images.csv"
-    input_csv = input_folder / sampled_images_csv_filename
+    console.input_csv = input_folder / sampled_images_csv_filename
 
-    if not input_csv.is_file():
+    if not console.input_csv.is_file():
         console.info("Label not provided")
-        input_csv = None
+        console.input_csv = None
 
     time_str = str(datetime.datetime.now().strftime("%Y%m%d%H%M%S"))
     rel_prediction_path = Path("prediction" + time_str)
@@ -109,16 +109,16 @@ def prediction(config_path, input_path, output_path):
     test_dataset = UvpDataset(root_dir=input_folder,
                               num_class=config.sampling.num_class,
                               # csv_file=None,
-                              csv_file=input_csv,
+                              csv_file=console.input_csv,
                               transform=transform,
                               phase='test')
 
     dataloader = DataLoader(test_dataset, batch_size=config.prediction.batch_size, shuffle=False)
 
-    predict(model, dataloader, prediction_path, device)
+    predict(model, dataloader, prediction_path, device, console)
 
 
-def predict(model, dataloader, prediction_path, device):
+def predict(model, dataloader, prediction_path, device, console):
     model.eval()
 
     all_labels = []
@@ -130,8 +130,9 @@ def predict(model, dataloader, prediction_path, device):
             outputs = model(images)
             _, predicted_labels = torch.max(outputs, 1)
 
-            all_labels.append(labels.data.cpu().detach().numpy())
-            all_preds.append(predicted_labels.cpu().detach().numpy())
+            if console.input_csv is not None:
+                all_labels.append(labels.data.cpu().detach().numpy())
+                all_preds.append(predicted_labels.cpu().detach().numpy())
 
             for i in range(len(predicted_labels)):
                 int_label = predicted_labels[i].item()
@@ -145,28 +146,29 @@ def predict(model, dataloader, prediction_path, device):
                 input_path = os.path.join(dataloader.dataset.root_dir, image_name)
                 shutil.copy(input_path, image_path)
 
-        all_labels = np.concatenate(all_labels).ravel()
-        all_preds = np.concatenate(all_preds).ravel()
+        if console.input_csv is not None:
+            all_labels = np.concatenate(all_labels).ravel()
+            all_preds = np.concatenate(all_preds).ravel()
 
-        report = classification_report(
-            all_labels,
-            all_preds,
-            target_names=dataloader.dataset.label_to_int,
-            digits=6,
-        )
+            report = classification_report(
+                all_labels,
+                all_preds,
+                target_names=dataloader.dataset.label_to_int,
+                digits=6,
+            )
 
-        conf_mtx = confusion_matrix(
-            all_labels,
-            all_preds,
-        )
+            conf_mtx = confusion_matrix(
+                all_labels,
+                all_preds,
+            )
 
-        df = report_to_df(report)
-        report_filename = os.path.join(prediction_path, 'report.csv')
-        df.to_csv(report_filename)
+            df = report_to_df(report)
+            report_filename = os.path.join(prediction_path, 'report.csv')
+            df.to_csv(report_filename)
 
-        df = pd.DataFrame(conf_mtx)
-        conf_mtx_filename = os.path.join(prediction_path, 'conf_matrix.csv')
-        df.to_csv(conf_mtx_filename)
+            df = pd.DataFrame(conf_mtx)
+            conf_mtx_filename = os.path.join(prediction_path, 'conf_matrix.csv')
+            df.to_csv(conf_mtx_filename)
 
     model.train()
 
